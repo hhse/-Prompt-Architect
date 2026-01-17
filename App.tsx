@@ -1,29 +1,103 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { StepIndicator } from './components/StepIndicator';
 import { StyleCard } from './components/StyleCard';
-import { PromptState, StyleOption } from './types';
+import { PromptState, StyleOption, AppMode } from './types';
 import { analyzeIdea, generateFinalPrompt } from './services/geminiService';
+
+const GlassIcon = ({ color }: { color: string }) => (
+  <div className={`w-16 h-16 rounded-2xl relative overflow-hidden flex items-center justify-center shadow-inner`}>
+    <div className={`absolute inset-0 bg-gradient-to-br ${color} opacity-20`}></div>
+    <div className="absolute inset-0 backdrop-blur-sm border border-white/40 rounded-2xl"></div>
+    <div className="relative z-10 w-8 h-8 rounded-full bg-white/60 blur-[1px] shadow-sm"></div>
+    <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-white/80"></div>
+  </div>
+);
+
+const Icons = {
+  UI: () => (
+    <div className="relative w-20 h-20">
+      <div className="absolute inset-0 bg-indigo-500/20 rounded-3xl backdrop-blur-md border border-white/50 shadow-xl rotate-6 translate-x-2"></div>
+      <div className="absolute inset-0 bg-white/40 rounded-3xl backdrop-blur-xl border border-white/60 shadow-2xl flex items-center justify-center">
+        <div className="w-10 h-1 rounded-full bg-indigo-500/40 mb-6"></div>
+        <div className="absolute bottom-4 left-4 right-4 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20"></div>
+      </div>
+    </div>
+  ),
+  INTERIOR: () => (
+    <div className="relative w-16 h-16">
+      <div className="absolute inset-0 bg-emerald-500/20 rounded-2xl rotate-45 shadow-lg"></div>
+      <div className="absolute inset-1 bg-white/40 backdrop-blur-lg rounded-2xl border border-white/50 flex items-center justify-center">
+        <div className="w-6 h-6 border-b-2 border-r-2 border-emerald-500/40 rounded-sm"></div>
+      </div>
+    </div>
+  ),
+  PHOTO: () => (
+    <div className="relative w-16 h-16">
+      <div className="absolute inset-0 bg-rose-500/20 rounded-full shadow-lg"></div>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-12 h-12 rounded-full border-4 border-white/60 backdrop-blur-xl bg-white/20"></div>
+        <div className="absolute w-4 h-4 rounded-full bg-rose-500/40"></div>
+      </div>
+    </div>
+  ),
+  ASSET: () => (
+    <div className="relative w-16 h-16">
+       <div className="absolute inset-0 bg-amber-500/20 rounded-2xl shadow-lg -rotate-12"></div>
+       <div className="absolute inset-0 bg-white/40 backdrop-blur-lg rounded-2xl border border-white/50 flex items-center justify-center">
+          <div className="w-6 h-6 bg-amber-500/30 rounded-full filter blur-[2px]"></div>
+          <div className="absolute w-4 h-4 bg-white/80 rounded-full"></div>
+       </div>
+    </div>
+  )
+};
+
+const MODE_DEFS = [
+  { id: 'UI_DESIGN', label: 'App UI Design', icon: <Icons.UI />, desc: 'Interfaces for Web & Mobile', gridClass: 'md:col-span-1 md:row-span-2' },
+  { id: 'INTERIOR', label: 'Interior Design', icon: <Icons.INTERIOR />, desc: 'Decor & Architectural Vibes', gridClass: 'md:col-span-1 md:row-span-1' },
+  { id: 'PHOTO_EDIT', label: 'Photography', icon: <Icons.PHOTO />, desc: 'Mood & Color Grade', gridClass: 'md:col-span-1 md:row-span-1' },
+  { id: 'ASSET_GEN', label: 'Icon & Logo', icon: <Icons.ASSET />, desc: 'Symbols & Graphic Assets', gridClass: 'md:col-span-2 md:row-span-1' },
+];
 
 const App: React.FC = () => {
   const [state, setState] = useState<PromptState>({
-    currentStep: 'INPUT',
+    currentStep: 'MODE_SELECT',
+    mode: 'UI_DESIGN',
     idea: '',
+    refImage: null,
     styles: [],
     selectedStyle: null,
     customVibe: '',
     finalPrompt: '',
+    codePrompt: '',
     isLoading: false,
     error: null,
   });
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleModeSelect = (mode: AppMode) => {
+    setState(prev => ({ ...prev, mode, currentStep: 'INPUT' }));
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setState(prev => ({ ...prev, refImage: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleStartAnalysis = async (e?: React.FormEvent, isReroll: boolean = false) => {
     if (e) e.preventDefault();
-    if (!state.idea.trim()) return;
+    if (!state.idea.trim() && !state.refImage) return;
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
-      const styles = await analyzeIdea(state.idea, isReroll);
+      const styles = await analyzeIdea(state.idea, state.mode, state.refImage, isReroll);
       setState(prev => ({
         ...prev,
         styles,
@@ -33,16 +107,8 @@ const App: React.FC = () => {
         customVibe: ''
       }));
     } catch (err) {
-      setState(prev => ({ 
-        ...prev, 
-        error: 'Analysis failed. Please try again.', 
-        isLoading: false 
-      }));
+      setState(prev => ({ ...prev, error: 'Analysis failed. Please try again.', isLoading: false }));
     }
-  };
-
-  const handleStyleSelect = (style: StyleOption) => {
-    setState(prev => ({ ...prev, selectedStyle: style, customVibe: '' }));
   };
 
   const handleConfirmStyle = async () => {
@@ -51,236 +117,230 @@ const App: React.FC = () => {
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
-      const prompt = await generateFinalPrompt(state.idea, activeStyle);
+      const { ui, code } = await generateFinalPrompt(state.idea, activeStyle, state.mode);
       setState(prev => ({
         ...prev,
-        finalPrompt: prompt,
+        finalPrompt: ui,
+        codePrompt: code,
         currentStep: 'FINAL_PROMPT',
         isLoading: false
       }));
     } catch (err) {
-      setState(prev => ({ 
-        ...prev, 
-        error: 'Prompt generation failed. Please try again.', 
-        isLoading: false 
-      }));
+      setState(prev => ({ ...prev, error: 'Generation failed. Please try again.', isLoading: false }));
     }
   };
 
   const reset = () => {
     setState({
-      currentStep: 'INPUT',
+      currentStep: 'MODE_SELECT',
+      mode: 'UI_DESIGN',
       idea: '',
+      refImage: null,
       styles: [],
       selectedStyle: null,
       customVibe: '',
       finalPrompt: '',
+      codePrompt: '',
       isLoading: false,
       error: null,
     });
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(state.finalPrompt);
+  const copyText = (text: string) => {
+    navigator.clipboard.writeText(text);
     alert('Copied to clipboard!');
   };
 
   return (
     <div className="min-h-screen pb-20 px-4">
-      {/* Navigation Header */}
-      <nav className="max-w-5xl mx-auto py-8 flex justify-between items-center">
-        <div className="flex items-center space-x-2">
-          <div className="bg-indigo-600 text-white p-2 rounded-lg font-bold">UX</div>
-          <h1 className="text-xl font-bold text-gray-900 tracking-tight">Prompt Architect</h1>
+      <nav className="max-w-6xl mx-auto py-10 flex justify-between items-center">
+        <div className="flex items-center space-x-3">
+          <div className="bg-indigo-600 text-white w-10 h-10 flex items-center justify-center rounded-xl font-black text-xl shadow-lg shadow-indigo-200">A</div>
+          <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Prompt Architect</h1>
         </div>
-        {state.currentStep !== 'INPUT' && (
-          <button 
-            onClick={reset}
-            className="text-gray-500 hover:text-indigo-600 font-medium text-sm transition-colors"
-          >
-            Start Over
-          </button>
+        {state.currentStep !== 'MODE_SELECT' && (
+          <button onClick={reset} className="text-gray-500 hover:text-indigo-600 font-bold text-sm bg-white/50 px-4 py-2 rounded-full backdrop-blur transition-all border border-white/50">Start Over</button>
         )}
       </nav>
 
-      <main className="max-w-4xl mx-auto mt-10">
-        <header className="text-center mb-12">
-          <h2 className="text-4xl font-extrabold text-gray-900 mb-4">
-            {state.currentStep === 'INPUT' && "What's your next big app idea?"}
-            {state.currentStep === 'STYLE_SELECTION' && "Choose a Visual Direction"}
-            {state.currentStep === 'FINAL_PROMPT' && "Your Professional UI Design Prompt"}
-          </h2>
-          <p className="text-lg text-gray-500 max-w-2xl mx-auto">
-            {state.currentStep === 'INPUT' && "I'll analyze your concept and propose professional visual styles to bring it to life."}
-            {state.currentStep === 'STYLE_SELECTION' && "Select a suggested style or describe your own unique vibe."}
-            {state.currentStep === 'FINAL_PROMPT' && "Use this structured prompt with AI tools like Midjourney or Stable Diffusion."}
-          </p>
-        </header>
+      <main className="max-w-5xl mx-auto">
+        {/* MODE SELECT */}
+        {state.currentStep === 'MODE_SELECT' && (
+          <div className="space-y-12 animate-in fade-in duration-700">
+            <div className="text-center max-w-2xl mx-auto">
+              <h2 className="text-5xl font-black text-gray-900 mb-4 tracking-tight">Select Design Domain</h2>
+              <p className="text-gray-500 text-lg font-medium">Choose a specialized engine to begin your visual journey.</p>
+            </div>
 
-        <StepIndicator currentStep={state.currentStep} />
+            <div className="bento-grid">
+              {MODE_DEFS.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => handleModeSelect(m.id as AppMode)}
+                  className={`p-8 glass-panel glass-card-hover rounded-[2.5rem] text-left group flex flex-col justify-between ${m.gridClass}`}
+                >
+                  <div className="mb-8 transform group-hover:scale-110 transition-transform duration-500">
+                    {m.icon}
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black text-gray-900 mb-2 group-hover:text-indigo-600 transition-colors">{m.label}</h3>
+                    <p className="text-gray-500 font-medium leading-relaxed">{m.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
-        {/* Step 1: Input */}
+        {/* INPUT STEP */}
         {state.currentStep === 'INPUT' && (
-          <form onSubmit={handleStartAnalysis} className="space-y-6">
-            <div className="relative">
+          <div className="space-y-6 animate-in slide-in-from-bottom-8 duration-500">
+            <header className="text-center mb-8">
+              <h2 className="text-4xl font-black text-gray-900 mb-2 tracking-tight">Draft your {state.mode.replace('_', ' ')}</h2>
+              <p className="text-gray-500 font-medium">Define the core vision or provide a reference image.</p>
+            </header>
+
+            <div className="glass-panel p-8 rounded-[2.5rem] shadow-sm">
+              <label className="block text-xs font-black text-indigo-500 uppercase tracking-widest mb-4">Core Vision / Concept</label>
               <textarea
                 value={state.idea}
                 onChange={(e) => setState(prev => ({ ...prev, idea: e.target.value }))}
-                placeholder="e.g., A minimalist meditation app focusing on breathing exercises..."
-                className="w-full h-48 p-6 text-lg border border-gray-200 rounded-3xl shadow-sm focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all resize-none bg-white"
-                required
+                placeholder="What are we building today? Describe the function, mood, and target audience..."
+                className="w-full h-40 p-6 text-xl text-gray-800 border-none bg-white/30 rounded-2xl focus:ring-2 focus:ring-indigo-100 outline-none resize-none placeholder-gray-400 font-medium"
               />
-              <div className="absolute bottom-4 right-6 text-sm text-gray-400">
-                {state.idea.length} characters
+              
+              <div className="mt-6 pt-6 border-t border-white/40 flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <input type="file" ref={fileInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-6 py-3 bg-white/60 hover:bg-white text-gray-900 rounded-2xl text-sm font-bold transition-all flex items-center space-x-2 border border-white/50 shadow-sm"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    <span>{state.refImage ? 'Change Image' : 'Visual Reference'}</span>
+                  </button>
+                  {state.refImage && <div className="text-sm text-emerald-600 font-bold">Ref. Loaded ✓</div>}
+                </div>
               </div>
             </div>
-            
+
+            {state.refImage && (
+              <div className="flex justify-center p-4">
+                <div className="relative group">
+                  <img src={state.refImage} className="max-h-56 rounded-3xl shadow-2xl border-4 border-white" alt="Ref" />
+                  <button onClick={() => setState(prev => ({ ...prev, refImage: null }))} className="absolute -top-3 -right-3 bg-rose-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg hover:scale-110 transition-all font-bold">✕</button>
+                </div>
+              </div>
+            )}
+
             <button
-              type="submit"
-              disabled={state.isLoading || !state.idea.trim()}
-              className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 shadow-xl shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95 flex items-center justify-center space-x-3"
+              onClick={() => handleStartAnalysis()}
+              disabled={state.isLoading || (!state.idea.trim() && !state.refImage)}
+              className="w-full py-6 bg-indigo-600 text-white rounded-[1.5rem] font-black text-xl hover:bg-indigo-700 shadow-2xl shadow-indigo-100 disabled:opacity-50 flex items-center justify-center space-x-3 transition-all"
             >
-              {state.isLoading ? (
-                <>
-                  <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span>Analyzing Idea...</span>
-                </>
-              ) : (
-                <>
-                  <span>Propose Visual Styles</span>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>
-                </>
-              )}
+              {state.isLoading ? <span>Architecting...</span> : <span>Generate Proposals</span>}
             </button>
-          </form>
+          </div>
         )}
 
-        {/* Step 2: Style Selection */}
+        {/* STYLE SELECTION */}
         {state.currentStep === 'STYLE_SELECTION' && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {state.styles.map((style) => (
+          <div className="space-y-8 animate-in fade-in duration-500">
+             <header className="text-center">
+              <h2 className="text-4xl font-black text-gray-900 mb-2 tracking-tight">The Aesthetic Layer</h2>
+              <p className="text-gray-500 font-medium">Select a curated visual direction or craft your own.</p>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {state.styles.map((s) => (
                 <StyleCard 
-                  key={style.id}
-                  style={style}
-                  isSelected={state.selectedStyle?.id === style.id}
-                  onSelect={handleStyleSelect}
+                  key={s.id}
+                  style={s}
+                  isSelected={state.selectedStyle?.id === s.id}
+                  onSelect={(style) => setState(prev => ({ ...prev, selectedStyle: style, customVibe: '' }))}
                 />
               ))}
             </div>
-
-            {/* Option D: Custom Vibe */}
-            <div className={`p-8 rounded-3xl border-2 transition-all duration-300 bg-white ${state.customVibe.trim() ? 'border-indigo-600 ring-4 ring-indigo-50 shadow-lg' : 'border-dashed border-gray-300'}`}>
-              <div className="flex items-center space-x-3 mb-4">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${state.customVibe.trim() ? 'bg-indigo-600' : 'bg-gray-300'}`}>
-                   D
-                </div>
-                <h3 className="text-xl font-bold text-gray-800">Option D: Custom Vibe</h3>
-              </div>
-              <textarea
+            
+            <div className={`p-8 glass-panel rounded-[2.5rem] border-2 transition-all ${state.customVibe ? 'border-indigo-500' : 'border-dashed border-white/60'}`}>
+              <h3 className="text-lg font-black text-gray-900 mb-4 flex items-center space-x-2">
+                <span className="bg-indigo-600 p-1 rounded-lg text-white">🪄</span>
+                <span>Custom Refinement</span>
+              </h3>
+              <textarea 
                 value={state.customVibe}
                 onChange={(e) => setState(prev => ({ ...prev, customVibe: e.target.value, selectedStyle: null }))}
-                placeholder="Describe your own style preference here... (e.g., 'A dark mode neon glassmorphism interface with organic shapes')"
-                className="w-full h-24 p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none resize-none text-sm"
+                placeholder="Describe your specific twist (e.g., 'Modernism with organic fluid textures' or 'Cyber-punk but minimal white')..."
+                className="w-full h-24 p-5 bg-white/30 rounded-2xl border-none outline-none text-gray-800 font-medium placeholder-gray-400"
               />
-              <p className="mt-2 text-xs text-gray-400">None of these? Tell me your preferred vibe, or ask for new styles below.</p>
-            </div>
-
-            <div className="flex flex-col md:flex-row gap-4">
-              <button
-                onClick={() => handleStartAnalysis(undefined, true)}
-                disabled={state.isLoading}
-                className="flex-1 py-4 bg-white text-gray-600 border border-gray-200 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center justify-center space-x-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                <span>Re-roll Styles</span>
-              </button>
-              
-              <button
-                onClick={handleConfirmStyle}
-                disabled={state.isLoading || (!state.selectedStyle && !state.customVibe.trim())}
-                className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 shadow-xl shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95 flex items-center justify-center space-x-3"
-              >
-                {state.isLoading ? (
-                  <>
-                    <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>Architecting UI Prompt...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Generate Final Prompt</span>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Final Prompt */}
-        {state.currentStep === 'FINAL_PROMPT' && (
-          <div className="space-y-6 animate-in zoom-in-95 duration-500">
-            <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100 relative group">
-              <pre className="whitespace-pre-wrap font-sans text-gray-800 text-lg leading-relaxed">
-                {state.finalPrompt}
-              </pre>
-              <button 
-                onClick={copyToClipboard}
-                className="absolute top-6 right-6 p-3 bg-gray-50 hover:bg-indigo-600 hover:text-white rounded-xl transition-all shadow-sm"
-                title="Copy to Clipboard"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                </svg>
-              </button>
             </div>
 
             <div className="flex gap-4">
-               <button
-                onClick={reset}
-                className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all"
+              <button onClick={() => handleStartAnalysis(undefined, true)} className="flex-1 py-5 bg-white/60 text-gray-600 border border-white/60 rounded-[1.5rem] font-black hover:bg-white transition-all">New Proposals</button>
+              <button 
+                onClick={handleConfirmStyle} 
+                className="flex-[2] py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-lg hover:bg-indigo-700 shadow-2xl shadow-indigo-100 disabled:opacity-50"
+                disabled={state.isLoading || (!state.selectedStyle && !state.customVibe)}
               >
-                Create New Prompt
-              </button>
-              <button
-                onClick={copyToClipboard}
-                className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all"
-              >
-                Copy Prompt
+                {state.isLoading ? 'Processing...' : 'Build Full Prompt'}
               </button>
             </div>
           </div>
         )}
 
-        {state.error && (
-          <div className="mt-8 p-4 bg-red-50 border border-red-100 text-red-600 rounded-xl flex items-center justify-center space-x-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>{state.error}</span>
+        {/* FINAL OUTPUT */}
+        {state.currentStep === 'FINAL_PROMPT' && (
+          <div className="space-y-8 animate-in zoom-in-95 duration-500">
+             <header className="text-center">
+              <h2 className="text-4xl font-black text-gray-900 mb-2 tracking-tight">Final Blueprint</h2>
+              <p className="text-gray-500 font-medium">Ready for high-fidelity generation.</p>
+            </header>
+
+            <div className="glass-panel p-8 md:p-12 rounded-[2.5rem] shadow-2xl">
+              <div className="flex justify-between items-center mb-8">
+                <div className="space-y-1">
+                  <span className="text-xs font-black uppercase tracking-[0.2em] text-indigo-500 bg-indigo-50 px-3 py-1 rounded-lg">Midjourney / AI Prompt</span>
+                  <h3 className="text-2xl font-black text-gray-900">5-Screen Consistent Flow</h3>
+                </div>
+                <button onClick={() => copyText(state.finalPrompt)} className="text-sm font-bold text-indigo-600 hover:text-indigo-800 px-6 py-3 rounded-2xl bg-indigo-50 transition-all border border-indigo-100 shadow-sm">Copy Blueprint</button>
+              </div>
+              <div className="bg-white/40 p-8 rounded-[2rem] border border-white/60 overflow-hidden">
+                <pre className="whitespace-pre-wrap text-gray-900 text-lg md:text-xl font-medium leading-relaxed font-sans">{state.finalPrompt}</pre>
+              </div>
+            </div>
+
+            {state.codePrompt && (
+              <div className="bg-gray-900 p-8 md:p-12 rounded-[2.5rem] shadow-2xl border border-gray-800">
+                <div className="flex justify-between items-center mb-8">
+                  <div className="space-y-1">
+                    <span className="text-xs font-black uppercase tracking-[0.2em] text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded-lg">
+                      {state.mode === 'UI_DESIGN' ? 'Developer Implementation Guide' : 'Domain Processing Logic'}
+                    </span>
+                    <h3 className="text-2xl font-black text-white">System Architecture</h3>
+                  </div>
+                  <button onClick={() => copyText(state.codePrompt)} className="text-sm font-bold text-emerald-400 hover:text-emerald-300 px-6 py-3 rounded-2xl bg-emerald-400/10 transition-all border border-emerald-400/20">Copy System Logic</button>
+                </div>
+                <div className="bg-black/20 p-8 rounded-[2rem] border border-white/5">
+                  <pre className="whitespace-pre-wrap text-emerald-50 font-mono text-sm md:text-base leading-relaxed">{state.codePrompt}</pre>
+                </div>
+                <p className="mt-8 text-xs text-gray-500 font-medium italic text-center">Architectural bridge translating visual aesthetics into functional technical instructions.</p>
+              </div>
+            )}
+            
+            <button onClick={reset} className="w-full py-6 bg-white/50 text-gray-900 rounded-[1.5rem] font-black text-xl hover:bg-white transition-all border border-white shadow-xl">Architect Something New</button>
+          </div>
+        )}
+
+        {state.isLoading && (
+          <div className="fixed inset-0 bg-white/20 backdrop-blur-xl z-50 flex flex-col items-center justify-center space-y-6">
+            <div className="w-20 h-20 relative">
+               <div className="absolute inset-0 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+               <div className="absolute inset-4 border-4 border-rose-400 border-b-transparent rounded-full animate-spin-slow"></div>
+            </div>
+            <p className="font-black text-2xl text-indigo-900 tracking-tight animate-pulse">Analyzing Visual Data...</p>
           </div>
         )}
       </main>
-
-      {/* Persistent Call to Action (Floating Progress) */}
-      {state.isLoading && (
-        <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-white px-6 py-3 rounded-full shadow-2xl border border-indigo-100 flex items-center space-x-4 z-50">
-           <div className="w-4 h-4 rounded-full bg-indigo-600 animate-ping"></div>
-           <span className="font-medium text-indigo-900">Gemini is thinking...</span>
-        </div>
-      )}
     </div>
   );
 };

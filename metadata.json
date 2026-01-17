@@ -1,5 +1,7 @@
 {
-  "name": "UX-Prompt-Architect",
-  "description": "A professional tool for turning vague app ideas into structured UI/UX design prompts for AI generation, featuring a dual-stage workflow with visual style proposals.",
-  "requestFramePermissions": []
+  "name": "UX-Prompt-Architect-Plus",
+  "description": "Multimodal design prompt engine with vision-to-style extraction and design-to-SwiftUI code bridge.",
+  "requestFramePermissions": [
+    "camera"
+  ]
 }
