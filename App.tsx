@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { StepIndicator } from './components/StepIndicator';
 import { StyleCard } from './components/StyleCard';
 import { PromptState, StyleOption } from './types';
@@ -11,23 +11,26 @@ const App: React.FC = () => {
     idea: '',
     styles: [],
     selectedStyle: null,
+    customVibe: '',
     finalPrompt: '',
     isLoading: false,
     error: null,
   });
 
-  const handleStartAnalysis = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleStartAnalysis = async (e?: React.FormEvent, isReroll: boolean = false) => {
+    if (e) e.preventDefault();
     if (!state.idea.trim()) return;
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
-      const styles = await analyzeIdea(state.idea);
+      const styles = await analyzeIdea(state.idea, isReroll);
       setState(prev => ({
         ...prev,
         styles,
         currentStep: 'STYLE_SELECTION',
-        isLoading: false
+        isLoading: false,
+        selectedStyle: null,
+        customVibe: ''
       }));
     } catch (err) {
       setState(prev => ({ 
@@ -39,15 +42,16 @@ const App: React.FC = () => {
   };
 
   const handleStyleSelect = (style: StyleOption) => {
-    setState(prev => ({ ...prev, selectedStyle: style }));
+    setState(prev => ({ ...prev, selectedStyle: style, customVibe: '' }));
   };
 
   const handleConfirmStyle = async () => {
-    if (!state.selectedStyle) return;
+    const activeStyle = state.customVibe.trim() ? state.customVibe : state.selectedStyle;
+    if (!activeStyle) return;
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
-      const prompt = await generateFinalPrompt(state.idea, state.selectedStyle);
+      const prompt = await generateFinalPrompt(state.idea, activeStyle);
       setState(prev => ({
         ...prev,
         finalPrompt: prompt,
@@ -69,6 +73,7 @@ const App: React.FC = () => {
       idea: '',
       styles: [],
       selectedStyle: null,
+      customVibe: '',
       finalPrompt: '',
       isLoading: false,
       error: null,
@@ -107,7 +112,7 @@ const App: React.FC = () => {
           </h2>
           <p className="text-lg text-gray-500 max-w-2xl mx-auto">
             {state.currentStep === 'INPUT' && "I'll analyze your concept and propose professional visual styles to bring it to life."}
-            {state.currentStep === 'STYLE_SELECTION' && "Select the style that best matches your brand and vision for the app."}
+            {state.currentStep === 'STYLE_SELECTION' && "Select a suggested style or describe your own unique vibe."}
             {state.currentStep === 'FINAL_PROMPT' && "Use this structured prompt with AI tools like Midjourney or Stable Diffusion."}
           </p>
         </header>
@@ -121,7 +126,7 @@ const App: React.FC = () => {
               <textarea
                 value={state.idea}
                 onChange={(e) => setState(prev => ({ ...prev, idea: e.target.value }))}
-                placeholder="e.g., A luxury watch marketplace for collectors with verification features..."
+                placeholder="e.g., A minimalist meditation app focusing on breathing exercises..."
                 className="w-full h-48 p-6 text-lg border border-gray-200 rounded-3xl shadow-sm focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all resize-none bg-white"
                 required
               />
@@ -169,28 +174,58 @@ const App: React.FC = () => {
               ))}
             </div>
 
-            <button
-              onClick={handleConfirmStyle}
-              disabled={state.isLoading || !state.selectedStyle}
-              className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 shadow-xl shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95 flex items-center justify-center space-x-3"
-            >
-              {state.isLoading ? (
-                <>
-                  <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span>Architecting UI Prompt...</span>
-                </>
-              ) : (
-                <>
-                  <span>Generate Final Prompt</span>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </>
-              )}
-            </button>
+            {/* Option D: Custom Vibe */}
+            <div className={`p-8 rounded-3xl border-2 transition-all duration-300 bg-white ${state.customVibe.trim() ? 'border-indigo-600 ring-4 ring-indigo-50 shadow-lg' : 'border-dashed border-gray-300'}`}>
+              <div className="flex items-center space-x-3 mb-4">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${state.customVibe.trim() ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                   D
+                </div>
+                <h3 className="text-xl font-bold text-gray-800">Option D: Custom Vibe</h3>
+              </div>
+              <textarea
+                value={state.customVibe}
+                onChange={(e) => setState(prev => ({ ...prev, customVibe: e.target.value, selectedStyle: null }))}
+                placeholder="Describe your own style preference here... (e.g., 'A dark mode neon glassmorphism interface with organic shapes')"
+                className="w-full h-24 p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none resize-none text-sm"
+              />
+              <p className="mt-2 text-xs text-gray-400">None of these? Tell me your preferred vibe, or ask for new styles below.</p>
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-4">
+              <button
+                onClick={() => handleStartAnalysis(undefined, true)}
+                disabled={state.isLoading}
+                className="flex-1 py-4 bg-white text-gray-600 border border-gray-200 rounded-2xl font-bold hover:bg-gray-50 transition-all flex items-center justify-center space-x-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Re-roll Styles</span>
+              </button>
+              
+              <button
+                onClick={handleConfirmStyle}
+                disabled={state.isLoading || (!state.selectedStyle && !state.customVibe.trim())}
+                className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 shadow-xl shadow-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95 flex items-center justify-center space-x-3"
+              >
+                {state.isLoading ? (
+                  <>
+                    <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Architecting UI Prompt...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Generate Final Prompt</span>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 

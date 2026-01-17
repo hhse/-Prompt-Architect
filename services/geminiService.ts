@@ -4,11 +4,13 @@ import { StyleOption } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-export const analyzeIdea = async (idea: string): Promise<StyleOption[]> => {
+export const analyzeIdea = async (idea: string, isReroll: boolean = false): Promise<StyleOption[]> => {
+  const context = isReroll ? "Propose 3 COMPLETELY DIFFERENT and unique visual styles than usual." : "Propose 3 distinct visual styles.";
+  
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Analyze this app idea: "${idea}". 
-    Propose 3 distinct visual styles suitable for this specific app. 
+    ${context}
     Return the response as a JSON array of objects with 'name' and 'description' keys. 
     The 'description' should be a vivid text description that helps the user imagine the look.`,
     config: {
@@ -31,16 +33,18 @@ export const analyzeIdea = async (idea: string): Promise<StyleOption[]> => {
   const styles = JSON.parse(text);
   return styles.map((s: any, index: number) => ({
     ...s,
-    id: `style-${index}`
+    id: `style-${Date.now()}-${index}`
   }));
 };
 
-export const generateFinalPrompt = async (idea: string, style: StyleOption): Promise<string> => {
+export const generateFinalPrompt = async (idea: string, style: StyleOption | string): Promise<string> => {
+  const styleDescription = typeof style === 'string' ? style : `${style.name}: ${style.description}`;
+  
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `You are a Senior UI/UX Product Designer.
+    contents: `You are a Senior UI/UX Product Designer and Prompt Engineer.
     App Idea: "${idea}"
-    Selected Style: "${style.name}" (${style.description})
+    User's Chosen Style Direction: "${styleDescription}"
     
     Generate a structured UI design prompt in CHINESE strictly following this format:
     设计一款[App Name]的UI。

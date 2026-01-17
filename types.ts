@@ -17,6 +17,7 @@ export interface PromptState {
   idea: string;
   styles: StyleOption[];
   selectedStyle: StyleOption | null;
+  customVibe: string;
   finalPrompt: string;
   isLoading: boolean;
   error: string | null;
