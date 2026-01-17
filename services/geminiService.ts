@@ -8,7 +8,7 @@ const MODE_CONTEXTS: Record<AppMode, string> = {
   UI_DESIGN: "UX/UI Design for mobile or web apps. Focus on layouts, accessibility, and interactive elements.",
   INTERIOR: "Interior Design and architecture. Focus on lighting, textures, materials, and furniture placement.",
   PHOTO_EDIT: "Professional photography and post-processing. Focus on color grading, exposure, mood, and lens effects.",
-  ASSET_GEN: "Graphic assets like logos, app icons, and vector symbols. Focus on scalability, symbolic clarity, and brand consistency."
+  ASSET_GEN: "App Icon Design. Focus on symbolic clarity, simple geometry, and iOS/Android squircle standards."
 };
 
 export const analyzeIdea = async (idea: string, mode: AppMode, refImage: string | null, isReroll: boolean = false): Promise<StyleOption[]> => {
@@ -56,9 +56,34 @@ export const analyzeIdea = async (idea: string, mode: AppMode, refImage: string 
 export const generateFinalPrompt = async (idea: string, style: StyleOption | string, mode: AppMode): Promise<{ ui: string; code: string }> => {
   const styleDescription = typeof style === 'string' ? style : `${style.name}: ${style.description}`;
   
-  const uiResponse = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `You are a Senior UI/UX Product Designer and Prompt Engineer.
+  let systemInstruction = "";
+  let promptFormat = "";
+
+  if (mode === 'ASSET_GEN') {
+    systemInstruction = `You are a professional App Icon Designer.
+    Task: Generate a prompt for a single high-quality App Icon based on "${idea}" and style "${styleDescription}".
+    Constraints:
+    - Shape: Squircle (iOS Standard).
+    - Composition: Central focus, simple geometry, NO small text, NO multiple screens.
+    - Background: Simple solid color or subtle gradient.
+    - Style: Match the chosen vibe exactly.`;
+
+    promptFormat = `设计一款[App Name]的 App Icon。
+
+    1. 核心设计规范 (Icon Specification):
+    * 形状: 统一 iOS 标准 Squircle 圆角。
+    * 构图: 中央焦点，几何极简，严禁出现任何微小文字。
+    * 风格核心: [Selected Style Keywords].
+    * 背景: 干净的纯色或微渐变背景。
+
+    2. 细节描述 (Visual Details):
+    * 材质: [Describe materials based on style e.g. Glass, Clay, Matte].
+    * 阴影与光效: [Specific lighting instructions].
+
+    3. 提示词参数:
+    --ar 1:1 --v 6.0 --style raw --no text, font, word, screens, layout`;
+  } else {
+    systemInstruction = `You are a Senior UI/UX Product Designer and Prompt Engineer.
     Mode: ${mode}
     Idea: "${idea}"
     Chosen Style: "${styleDescription}"
@@ -66,11 +91,9 @@ export const generateFinalPrompt = async (idea: string, style: StyleOption | str
     Task: Determine the optimal number of screens (N) based on complexity:
     - Simple Utilities (Flashlight, Calculator): N=3
     - Standard Apps (News, Todo, Weather): N=4
-    - Complex Platforms (Social Media, E-commerce, Finance): N=5
-    
-    Generate a structured AI design prompt in CHINESE strictly following this format:
-    
-    设计一款[App Name]的UI界面设计图，包含 [N] 个关键页面。
+    - Complex Platforms (Social Media, E-commerce, Finance): N=5`;
+
+    promptFormat = `设计一款[App Name]的UI界面设计图，包含 [N] 个关键页面。
 
     1. 设计规范 (Design System):
     * 风格核心: [Selected Style Keywords].
@@ -80,12 +103,15 @@ export const generateFinalPrompt = async (idea: string, style: StyleOption | str
     2. 页面流 (Screen Flow):
     (From Left to Right, generate exactly [N] screens)
     1. [Screen 1 Name]: [Detailed UI description of primary function];
-    2. [Screen 2 Name]: [Description of the next logical step];
-    3. [Screen 3 Name]: [Description of tertiary function or settings];
     ... (continue until [N])
 
     3. 提示词参数:
-    --ar 3:2 --v 6.0 --style raw`,
+    --ar 3:2 --v 6.0 --style raw`;
+  }
+
+  const uiResponse = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `${systemInstruction}\n\nGenerate the final prompt in CHINESE strictly following this format:\n\n${promptFormat}`,
   });
 
   let codePrompt = "";
@@ -102,6 +128,12 @@ export const generateFinalPrompt = async (idea: string, style: StyleOption | str
       Output ONLY the meta-prompt in English.`,
     });
     codePrompt = codeResponse.text || "";
+  } else if (mode === 'ASSET_GEN') {
+    codePrompt = `App Icon Implementation Specs:
+    - View Type: RoundedRectangle (continuous curvature)
+    - Aspect Ratio: 1:1
+    - Icon Size: 1024x1024 (Master Asset)
+    - Safe Area: Keep content within central 80% to avoid edge clipping.`;
   } else {
     codePrompt = `Implementation reference for ${mode} based on the selected visual language. Focus on technical parameters relevant to this domain.`;
   }
